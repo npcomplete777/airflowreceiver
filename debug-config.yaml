@@ -1,0 +1,32 @@
+receivers:
+  airflow:
+    collection_interval: 10s  # Shorter for faster testing
+    initial_delay: 1s
+    
+    collection_modes:
+      rest_api: true
+      database: false
+      statsd: false
+    
+    rest_api:
+      endpoint: http://localhost:8080
+      username: admin
+      password: admin
+      collection_interval: 10s
+      include_past_runs: true
+      past_runs_lookback: 24h
+
+exporters:
+  debug:
+    verbosity: detailed
+    sampling_initial: 5
+    sampling_thereafter: 5
+
+service:
+  telemetry:
+    logs:
+      level: debug
+  pipelines:
+    metrics:
+      receivers: [airflow]
+      exporters: [debug]

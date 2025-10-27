@@ -1,0 +1,15 @@
+# Binaries
+otelcol-airflow/otelcol-airflow
+
+# Test/debug logs
+*.log
+
+# Configs with real credentials (keep local only)
+*-production.yaml
+production-config.yaml
+dynatrace-config.yaml
+dynatrace-full-config.yaml
+
+# Build artifacts
+*.tmp
+*.bak

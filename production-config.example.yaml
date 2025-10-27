@@ -1,0 +1,35 @@
+receivers:
+  airflow:
+    collection_interval: 30s
+    initial_delay: 5s
+    
+    collection_modes:
+      rest_api: true
+      database: false
+      statsd: false
+    
+    rest_api:
+      endpoint: http://localhost:8080
+      username: admin
+      password: admin  # Change this!
+      collection_interval: 30s
+      include_past_runs: true
+      past_runs_lookback: 24h
+
+processors:
+  batch:
+    timeout: 10s
+    send_batch_size: 100
+
+exporters:
+  otlphttp:
+    endpoint: "https://YOUR_ENVIRONMENT.live.dynatrace.com/api/v2/otlp"
+    headers:
+      Authorization: "Api-Token YOUR_DYNATRACE_TOKEN_HERE"
+
+service:
+  pipelines:
+    metrics:
+      receivers: [airflow]
+      processors: [batch]
+      exporters: [otlphttp]

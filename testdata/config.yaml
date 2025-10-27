@@ -1,0 +1,78 @@
+# Example configuration for Airflow receiver
+
+# Example 1: REST API only (recommended for most deployments)
+airflow/rest_api:
+  collection_modes:
+    rest_api: true
+    database: false
+    statsd: false
+  rest_api:
+    endpoint: http://localhost:8080
+    username: admin
+    password: ${env:AIRFLOW_PASSWORD}
+    collection_interval: 30s
+    include_past_runs: false
+    past_runs_lookback: 24h
+    timeout: 30s
+
+# Example 2: All collection modes enabled
+airflow/full:
+  collection_modes:
+    rest_api: true
+    database: true
+    statsd: true
+  rest_api:
+    endpoint: http://airflow-webserver:8080
+    username: admin
+    password: ${env:AIRFLOW_PASSWORD}
+    collection_interval: 30s
+    include_past_runs: true
+    past_runs_lookback: 7d
+  database:
+    endpoint: postgres:5432
+    transport: tcp
+    database: airflow
+    username: airflow_readonly
+    password: ${env:AIRFLOW_DB_PASSWORD}
+    collection_interval: 60s
+    query_timeout: 30s
+    tls:
+      insecure: false
+      insecure_skip_verify: false
+  statsd:
+    endpoint: 0.0.0.0:8125
+    transport: udp
+    aggregation_interval: 60s
+    enable_metric_type: true
+
+# Example 3: Database direct query (for environments without API access)
+airflow/database:
+  collection_modes:
+    rest_api: false
+    database: true
+    statsd: false
+  database:
+    endpoint: airflow-postgres.internal:5432
+    transport: tcp
+    database: airflow
+    username: metrics_reader
+    password: ${env:DB_PASSWORD}
+    collection_interval: 30s
+    query_timeout: 15s
+
+# Example 4: StatsD receiver only (backward compatibility)
+airflow/statsd:
+  collection_modes:
+    rest_api: false
+    database: false
+    statsd: true
+  statsd:
+    endpoint: 0.0.0.0:8125
+    transport: udp
+    aggregation_interval: 60s
+    enable_metric_type: true
+    timer_histogram_mapping:
+      - statsd_type: "timing"
+        observer_type: "histogram"
+        histogram:
+          max_size: 100

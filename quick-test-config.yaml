@@ -1,0 +1,27 @@
+receivers:
+  airflow:
+    collection_interval: 15s
+    initial_delay: 2s
+    
+    collection_modes:
+      rest_api: true
+      database: false
+      statsd: false
+    
+    rest_api:
+      endpoint: http://localhost:8080
+      username: admin
+      password: admin
+      collection_interval: 15s
+      include_past_runs: true
+      past_runs_lookback: 1h
+
+exporters:
+  debug:
+    verbosity: detailed
+
+service:
+  pipelines:
+    metrics:
+      receivers: [airflow]
+      exporters: [debug]

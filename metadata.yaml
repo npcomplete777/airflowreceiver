@@ -1,0 +1,119 @@
+type: airflow
+
+status:
+  class: receiver
+  stability:
+    alpha: [metrics, logs, traces]
+  distributions: [contrib]
+  codeowners:
+    active: [your-github-username]
+
+resource_attributes:
+  airflow.deployment.environment:
+    description: Airflow deployment environment (production, staging, etc.)
+    type: string
+    enabled: true
+  
+  airflow.version:
+    description: Apache Airflow version
+    type: string
+    enabled: true
+  
+  airflow.component:
+    description: Airflow component type (scheduler, webserver, worker)
+    type: string
+    enabled: true
+
+attributes:
+  dag.id:
+    description: DAG identifier
+    type: string
+  
+  dag.owner:
+    description: DAG owner/author
+    type: string
+  
+  task.id:
+    description: Task identifier within a DAG
+    type: string
+  
+  run.id:
+    description: DAG run identifier
+    type: string
+  
+  run.type:
+    description: Type of DAG run (scheduled, manual, backfill)
+    type: string
+    enum: [scheduled, manual, backfill, dataset_triggered]
+  
+  state:
+    description: Execution state
+    type: string
+    enum: [queued, running, success, failed, skipped, upstream_failed, up_for_retry, up_for_reschedule, sensing, deferred, removed, restarting]
+  
+  pool.name:
+    description: Pool name for resource management
+    type: string
+  
+  executor.type:
+    description: Executor type being used
+    type: string
+    enum: [SequentialExecutor, LocalExecutor, CeleryExecutor, KubernetesExecutor, LocalKubernetesExecutor, CeleryKubernetesExecutor]
+
+metrics:
+  airflow.dag.run.duration:
+    description: Duration of DAG run execution
+    unit: s
+    gauge:
+      value_type: double
+    attributes: [dag.id, run.id, run.type, state]
+    enabled: true
+  
+  airflow.dag.run.count:
+    description: Number of DAG runs by state
+    unit: "{runs}"
+    sum:
+      value_type: int
+      monotonic: true
+      aggregation_temporality: cumulative
+    attributes: [dag.id, state]
+    enabled: true
+  
+  airflow.task.instance.duration:
+    description: Duration of task instance execution
+    unit: s
+    gauge:
+      value_type: double
+    attributes: [dag.id, task.id, run.id, state]
+    enabled: true
+  
+  airflow.scheduler.heartbeat:
+    description: Scheduler heartbeat timestamp
+    unit: s
+    gauge:
+      value_type: int
+    enabled: true
+  
+  airflow.pool.slots.open:
+    description: Number of open slots in pool
+    unit: "{slots}"
+    gauge:
+      value_type: int
+    attributes: [pool.name]
+    enabled: true
+  
+  airflow.pool.slots.used:
+    description: Number of used slots in pool
+    unit: "{slots}"
+    gauge:
+      value_type: int
+    attributes: [pool.name]
+    enabled: true
+  
+  airflow.executor.queued.tasks:
+    description: Number of tasks queued in executor
+    unit: "{tasks}"
+    gauge:
+      value_type: int
+    attributes: [executor.type]
+    enabled: true

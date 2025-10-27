@@ -1,0 +1,26 @@
+receivers:
+  airflow:
+    collection_modes:
+      rest_api: true
+      database: false
+      statsd: false
+    rest_api:
+      endpoint: http://localhost:8080
+      username: admin
+      password: admin
+      collection_interval: 60s
+      timeout: 30s
+
+processors:
+  batch:
+
+exporters:
+  debug:
+    verbosity: detailed
+
+service:
+  pipelines:
+    metrics:
+      receivers: [airflow]
+      processors: [batch]
+      exporters: [debug]
