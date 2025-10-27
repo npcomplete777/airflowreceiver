@@ -1,15 +1,41 @@
 # Binaries
-otelcol-airflow/otelcol-airflow
-
-# Test/debug logs
-*.log
-
-# Configs with real credentials (keep local only)
-*-production.yaml
-production-config.yaml
-dynatrace-config.yaml
-dynatrace-full-config.yaml
+otelcol-airflow/
+*.exe
+*.dll
+*.so
+*.dylib
 
 # Build artifacts
-*.tmp
+*.log
+build.log
+
+# Credentials (use .example versions)
+*production*.yaml
+!*production*.example.yaml
+
+# Backups
 *.bak
+*.backup
+*_backup.go
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Go
+vendor/
+*.test
+*.out
+coverage.txt
+
+# Local test configs with credentials (keep local only)
+dynatrace-config.yaml
+dynatrace-full-config.yaml
+working-config.yaml

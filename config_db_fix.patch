@@ -1,0 +1,10 @@
+type DatabaseConfig struct {
+	Host               string                     `mapstructure:"host"`
+	Port               int                        `mapstructure:"port"`
+	Database           string                     `mapstructure:"database"`
+	Username           string                     `mapstructure:"username"`
+	Password           configopaque.String        `mapstructure:"password"`
+	SSLMode            string                     `mapstructure:"ssl_mode"`
+	CollectionInterval time.Duration              `mapstructure:"collection_interval"`
+	QueryTimeout       time.Duration              `mapstructure:"query_timeout"`
+}

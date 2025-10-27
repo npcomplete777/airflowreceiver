@@ -11,7 +11,6 @@ import (
 	"go.opentelemetry.io/collector/config/confighttp"
 	"go.opentelemetry.io/collector/config/confignet"
 	"go.opentelemetry.io/collector/config/configopaque"
-	"go.opentelemetry.io/collector/config/configtls"
 	"go.opentelemetry.io/collector/scraper/scraperhelper"
 )
 
@@ -46,14 +45,14 @@ type RESTAPIConfig struct {
 }
 
 type DatabaseConfig struct {
-	Endpoint string `mapstructure:"endpoint"`
-	Transport string `mapstructure:"transport"`
-	Database string `mapstructure:"database"`
-	Username string `mapstructure:"username"`
-	Password configopaque.String `mapstructure:"password"`
-	CollectionInterval time.Duration `mapstructure:"collection_interval"`
-	TLS *configtls.ClientConfig `mapstructure:"tls"`
-	QueryTimeout time.Duration `mapstructure:"query_timeout"`
+	Host               string                     `mapstructure:"host"`
+	Port               int                        `mapstructure:"port"`
+	Database           string                     `mapstructure:"database"`
+	Username           string                     `mapstructure:"username"`
+	Password           configopaque.String        `mapstructure:"password"`
+	SSLMode            string                     `mapstructure:"ssl_mode"`
+	CollectionInterval time.Duration              `mapstructure:"collection_interval"`
+	QueryTimeout       time.Duration              `mapstructure:"query_timeout"`
 }
 
 type StatsDConfig struct {
@@ -95,10 +94,19 @@ func (cfg *Config) Validate() error {
 		if cfg.DatabaseConfig == nil {
 			return errors.New("database config required when database mode enabled")
 		}
-		if cfg.DatabaseConfig.Endpoint == "" {
-			return fmt.Errorf("database: %w", ErrNoEndpoint)
+		if cfg.DatabaseConfig.Host == "" {
+			return errors.New("database host must be specified")
 		}
 		if cfg.DatabaseConfig.CollectionInterval <= 0 {
+		}
+		if cfg.DatabaseConfig.Port == 0 {
+			cfg.DatabaseConfig.Port = 5432
+		}
+		if cfg.DatabaseConfig.SSLMode == "" {
+			cfg.DatabaseConfig.SSLMode = "disable"
+		}
+		if cfg.DatabaseConfig.QueryTimeout <= 0 {
+			cfg.DatabaseConfig.QueryTimeout = 15 * time.Second
 			cfg.DatabaseConfig.CollectionInterval = 30 * time.Second
 		}
 	}

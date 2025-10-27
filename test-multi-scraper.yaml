@@ -1,0 +1,43 @@
+receivers:
+  airflow:
+    collection_interval: 30s
+    initial_delay: 5s
+    
+    collection_modes:
+      rest_api: true
+      database: true   # ⚡ DATABASE ENABLED
+      statsd: false
+    
+    rest_api:
+      endpoint: http://localhost:8080
+      username: admin
+      password: admin
+      collection_interval: 30s
+      include_past_runs: true
+      past_runs_lookback: 24h
+    
+    database:
+      host: localhost
+      port: 5432
+      database: airflow
+      username: airflow
+      password: airflow
+      ssl_mode: disable
+      collection_interval: 60s
+      query_timeout: 15s
+
+exporters:
+  debug:
+    verbosity: detailed
+    sampling_initial: 5
+    sampling_thereafter: 5
+
+service:
+  telemetry:
+    logs:
+      level: info
+  
+  pipelines:
+    metrics:
+      receivers: [airflow]
+      exporters: [debug]

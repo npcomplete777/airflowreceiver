@@ -1,185 +1,368 @@
-# Apache Airflow Receiver
+# Apache Airflow OpenTelemetry Receiver
 
-The Airflow receiver collects metrics, logs, and traces from Apache Airflow deployments.
+An OpenTelemetry collector receiver for Apache Airflow that collects metrics from multiple data sources.
 
-**Status: Alpha**
-
-## Supported Pipeline Types
-
-| Pipeline Type | Stability |
-|--------------|-----------|
-| metrics      | [alpha]   |
-| logs         | [development] |
-| traces       | [development] |
+**Status:** Alpha  
+**OTEL Version:** 0.136.0  
+**Airflow Compatibility:** 2.0+
 
 ## Overview
 
-This receiver supports three collection modes that can be used independently or together:
+This receiver implements three independent collection mechanisms:
 
-1. **REST API** - Queries Airflow's REST API for DAG runs, task instances, and pool metrics
-2. **Database** - Directly queries the Airflow metadata database for detailed telemetry
-3. **StatsD** - Receives StatsD metrics emitted by Airflow (backward compatibility)
+1. **REST API Scraper** - Polls Airflow's REST API endpoints
+2. **Database Scraper** - Queries the Airflow metadata database directly
+3. **StatsD Receiver** - Listens for StatsD metrics emitted by Airflow
 
-### When to Use Each Mode
+Each mode can be enabled independently or in combination depending on deployment requirements and access constraints.
 
-| Mode | Use Case | Pros | Cons |
-|------|----------|------|------|
-| REST API | Modern Airflow (2.0+) deployments | No DB access needed, rich context | API rate limits, polling delay |
-| Database | Direct DB access available | Real-time data, no API overhead | Requires read-only DB access |
-| StatsD | Legacy compatibility, real-time metrics | Low latency, push-based | Pre-aggregated, limited context |
-
-## Configuration
-
-### REST API Mode (Recommended)
-```yaml
-receivers:
-  airflow:
-    collection_modes:
-      rest_api: true
-    rest_api:
-      endpoint: http://airflow-webserver:8080
-      username: admin
-      password: ${env:AIRFLOW_PASSWORD}
-      collection_interval: 30s
-      include_past_runs: false
-      past_runs_lookback: 24h
+## Architecture
 ```
-
-### Database Mode
-```yaml
-receivers:
-  airflow:
-    collection_modes:
-      database: true
-    database:
-      endpoint: postgres:5432
-      transport: tcp
-      database: airflow
-      username: metrics_readonly
-      password: ${env:DB_PASSWORD}
-      collection_interval: 30s
-      query_timeout: 15s
-      tls:
-        insecure: false
-```
-
-### StatsD Mode
-```yaml
-receivers:
-  airflow:
-    collection_modes:
-      statsd: true
-    statsd:
-      endpoint: 0.0.0.0:8125
-      transport: udp
-      aggregation_interval: 60s
-```
-
-### Multi-Mode (Enterprise)
-```yaml
-receivers:
-  airflow:
-    collection_modes:
-      rest_api: true
-      database: true
-      statsd: true
-    rest_api:
-      endpoint: http://airflow:8080
-      username: admin
-      password: ${env:AIRFLOW_PASSWORD}
-      collection_interval: 60s
-    database:
-      endpoint: postgres:5432
-      database: airflow
-      username: readonly
-      password: ${env:DB_PASSWORD}
-      collection_interval: 30s
-    statsd:
-      endpoint: 0.0.0.0:8125
-      aggregation_interval: 60s
+┌─────────────────────────────────────┐
+│         Apache Airflow              │
+│  REST API │ PostgreSQL │ StatsD     │
+└─────┬──────────┬─────────┬──────────┘
+      │          │         │
+      ▼          ▼         ▼
+┌─────────────────────────────────────┐
+│    Airflow OTEL Receiver            │
+│  ┌─────────┐ ┌─────────┐ ┌───────┐ │
+│  │  REST   │ │   DB    │ │StatsD │ │
+│  │ Scraper │ │ Scraper │ │Scraper│ │
+│  └─────────┘ └─────────┘ └───────┘ │
+│         Metrics Builder             │
+└─────────────┬───────────────────────┘
+              │ OTLP
+              ▼
+      [OTLP Exporter]
 ```
 
 ## Metrics
 
-| Metric | Description | Attributes | Mode |
-|--------|-------------|------------|------|
-| `airflow.dag.run.duration` | DAG run execution time | dag.id, run.id, run.type, state | REST/DB |
-| `airflow.dag.run.count` | Number of DAG runs by state | dag.id, state | REST/DB |
-| `airflow.task.instance.duration` | Task execution time | dag.id, task.id, run.id, state | REST/DB |
-| `airflow.scheduler.heartbeat` | Scheduler heartbeat timestamp | - | REST/DB/StatsD |
-| `airflow.pool.slots.open` | Available pool slots | pool.name | REST/DB |
-| `airflow.pool.slots.used` | Used pool slots | pool.name | REST/DB |
-| `airflow.executor.queued.tasks` | Tasks queued in executor | executor.type | StatsD |
+All metrics follow OpenTelemetry semantic conventions where applicable. Custom conventions are documented below.
 
-## Resource Attributes
+### Metric Naming Convention
 
-| Attribute | Description |
-|-----------|-------------|
-| `airflow.deployment.environment` | Deployment environment (prod, staging) |
-| `airflow.version` | Airflow version |
-| `airflow.component` | Component type (scheduler, webserver, worker) |
+Format: `airflow.<component>.<metric>.<unit>`
 
-## Airflow Configuration
+Example: `airflow.dag.run.duration` (seconds)
 
-### REST API Setup
+### REST API Metrics
 
-Ensure Airflow REST API is enabled and accessible:
-```python
-# airflow.cfg
-[api]
-auth_backends = airflow.api.auth.backend.basic_auth
+#### DAG Metrics
+
+**`airflow.dag.run.duration`** (Gauge, seconds)
+- Description: Duration of a DAG run execution
+- Attributes:
+  - `dag.id` (string): DAG identifier
+  - `dag_run.id` (string): Unique DAG run identifier
+  - `run.type` (string): Type of run (scheduled, manual, backfill, dataset_triggered)
+  - `state` (string): Final state (success, failed, running)
+  - `external_trigger` (boolean): Whether externally triggered
+
+**`airflow.dag.run.count`** (Sum, monotonic)
+- Description: Number of DAG runs by state
+- Attributes:
+  - `dag.id` (string)
+  - `state` (string)
+
+**`airflow.dag_runs.by_state`** (Gauge)
+- Description: Current count of DAG runs grouped by state
+- Attributes:
+  - `dag.id` (string)
+  - `state` (string): queued, running, success, failed
+
+**`airflow.dags.count`** (Gauge)
+- Description: Total number of DAGs by operational status
+- Attributes:
+  - `status` (string): paused, active
+
+**`airflow.dag.info`** (Gauge, value=1)
+- Description: DAG metadata and configuration
+- Attributes:
+  - `dag.id` (string)
+  - `is_paused` (boolean)
+  - `tags` (string): Comma-separated list of tags
+
+#### Task Metrics
+
+**`airflow.task.instance.duration`** (Gauge, seconds)
+- Description: Task instance execution duration
+- Attributes:
+  - `dag.id` (string)
+  - `task.id` (string)
+  - `dag_run.id` (string)
+  - `state` (string)
+  - `operator` (string): Task operator type (BashOperator, PythonOperator, etc)
+  - `pool` (string): Execution pool name
+  - `queue` (string): Celery queue name
+  - `try_number` (int): Execution attempt number
+
+**`airflow.task_instances.by_state`** (Gauge)
+- Description: Current count of task instances by state
+- Attributes:
+  - `dag.id` (string)
+  - `state` (string)
+
+#### Pool Metrics
+
+**`airflow.pool.slots.open`** (Gauge)
+- Description: Available slots in the pool
+- Attributes:
+  - `pool.name` (string)
+
+**`airflow.pool.slots.used`** (Gauge)
+- Description: Currently occupied slots
+- Attributes:
+  - `pool.name` (string)
+
+**`airflow.pool.slots.queued`** (Gauge)
+- Description: Tasks queued waiting for slots
+- Attributes:
+  - `pool.name` (string)
+
+**`airflow.pool.slots.running`** (Gauge)
+- Description: Tasks currently executing
+- Attributes:
+  - `pool.name` (string)
+
+**`airflow.pool.slots.total`** (Gauge)
+- Description: Total pool capacity
+- Attributes:
+  - `pool.name` (string)
+  - `pool.description` (string, optional)
+
+**`airflow.pool.slots.deferred`** (Gauge)
+- Description: Deferred tasks (async)
+- Attributes:
+  - `pool.name` (string)
+
+**`airflow.pool.slots.scheduled`** (Gauge)
+- Description: Scheduled but not yet running tasks
+- Attributes:
+  - `pool.name` (string)
+
+#### System Health Metrics
+
+**`airflow.scheduler.health`** (Gauge)
+- Description: Scheduler health status (1=healthy, 0=unhealthy)
+- Attributes:
+  - `status` (string): healthy, unhealthy
+
+**`airflow.database.health`** (Gauge)
+- Description: Metadata database health (1=healthy, 0=unhealthy)
+- Attributes:
+  - `status` (string): healthy, unhealthy
+
+**`airflow.scheduler.heartbeat.age`** (Gauge, seconds)
+- Description: Time since last scheduler heartbeat
+- No attributes
+
+#### Configuration Metrics
+
+**`airflow.connections.count`** (Gauge)
+- Description: Number of configured connections by type
+- Attributes:
+  - `connection.type` (string): postgres, http, aws, gcp, etc.
+
+**`airflow.variables.count`** (Gauge)
+- Description: Total number of Airflow variables
+- No attributes
+
+**`airflow.import_errors.count`** (Gauge)
+- Description: Number of DAG import errors
+- No attributes
+
+### Database Metrics
+
+These metrics require direct database access and provide aggregated statistics.
+
+**`airflow.task.instance.count.db`** (Gauge)
+- Description: Task instance count from 24-hour database aggregation
+- Attributes:
+  - `dag.id` (string)
+  - `task.id` (string)
+  - `state` (string)
+  - `operator` (string)
+  - `pool` (string)
+
+**`airflow.task.instance.duration.avg`** (Gauge, seconds)
+- Description: Average task duration over 24 hours
+- Attributes:
+  - `dag.id` (string)
+  - `task.id` (string)
+  - `state` (string)
+
+**`airflow.task.instance.duration.max`** (Gauge, seconds)
+- Description: Maximum task duration over 24 hours
+- Attributes:
+  - `dag.id` (string)
+  - `task.id` (string)
+  - `state` (string)
+
+**`airflow.dag.run.count.db`** (Gauge)
+- Description: DAG run count from 24-hour database aggregation
+- Attributes:
+  - `dag.id` (string)
+  - `state` (string)
+
+**`airflow.dag.run.duration.avg`** (Gauge, seconds)
+- Description: Average DAG run duration over 24 hours
+- Attributes:
+  - `dag.id` (string)
+  - `state` (string)
+
+**`airflow.scheduler.tasks.scheduled`** (Gauge)
+- Description: Count of tasks in scheduled state
+- No attributes
+
+**`airflow.scheduler.tasks.queued`** (Gauge)
+- Description: Count of tasks in queued state
+- No attributes
+
+**`airflow.scheduler.tasks.running`** (Gauge)
+- Description: Count of tasks in running state
+- No attributes
+
+**`airflow.scheduler.tasks.success.24h`** (Gauge)
+- Description: Successful tasks in last 24 hours
+- No attributes
+
+**`airflow.scheduler.tasks.failed.24h`** (Gauge)
+- Description: Failed tasks in last 24 hours
+- No attributes
+
+**`airflow.scheduler.tasks.orphaned`** (Gauge)
+- Description: Tasks running for more than 1 hour
+- No attributes
+
+**`airflow.sla.miss.count`** (Gauge)
+- Description: SLA misses in last 24 hours
+- Attributes:
+  - `dag.id` (string)
+
+### StatsD Metrics
+
+StatsD metrics are received from Airflow's built-in StatsD emitter. Metric names and attributes depend on Airflow's configuration. Common patterns:
+
+- `airflow.dag_processing.*` - DAG parsing metrics
+- `airflow.executor.*` - Executor queue metrics
+- `airflow.scheduler.*` - Scheduler loop metrics
+- `airflow.task.*` - Task-level metrics
+
+## Configuration
+
+### Basic Configuration
+```yaml
+receivers:
+  airflow:
+    collection_interval: 30s
+    initial_delay: 5s
+    
+    collection_modes:
+      rest_api: true
+      database: false
+      statsd: false
 ```
 
-Create a read-only user for metrics collection:
-```bash
-airflow users create \
-  --username metrics \
-  --password <password> \
-  --role Viewer \
-  --email metrics@example.com \
-  --firstname Metrics \
-  --lastname User
+### REST API Configuration
+```yaml
+rest_api:
+  endpoint: http://airflow-webserver:8080
+  username: metrics_user
+  password: ${env:AIRFLOW_PASSWORD}
+  collection_interval: 30s
+  include_past_runs: false
+  past_runs_lookback: 24h
+  timeout: 30s
 ```
 
-### Database Setup
+**Parameters:**
+- `endpoint` (string, required): Airflow webserver URL
+- `username` (string, required): Basic auth username
+- `password` (string, required): Basic auth password
+- `collection_interval` (duration, default: 30s): Scrape frequency
+- `include_past_runs` (boolean, default: false): Collect historical DAG runs
+- `past_runs_lookback` (duration, default: 24h): Historical range when include_past_runs=true
+- `timeout` (duration, default: 30s): HTTP request timeout
 
-Create a read-only database user:
+### Database Configuration
+```yaml
+database:
+  host: postgres.example.com
+  port: 5432
+  database: airflow
+  username: metrics_readonly
+  password: ${env:DB_PASSWORD}
+  ssl_mode: require
+  collection_interval: 60s
+  query_timeout: 15s
+```
+
+**Parameters:**
+- `host` (string, required): PostgreSQL host
+- `port` (int, default: 5432): PostgreSQL port
+- `database` (string, required): Database name
+- `username` (string, required): Database user
+- `password` (string, required): Database password
+- `ssl_mode` (string, default: disable): SSL mode (disable, require, verify-ca, verify-full)
+- `collection_interval` (duration, default: 60s): Query frequency
+- `query_timeout` (duration, default: 15s): SQL query timeout
+
+**Database Permissions Required:**
 ```sql
--- PostgreSQL
-CREATE USER metrics_readonly WITH PASSWORD 'password';
 GRANT CONNECT ON DATABASE airflow TO metrics_readonly;
 GRANT USAGE ON SCHEMA public TO metrics_readonly;
-GRANT SELECT ON ALL TABLES IN SCHEMA public TO metrics_readonly;
+GRANT SELECT ON task_instance TO metrics_readonly;
+GRANT SELECT ON dag_run TO metrics_readonly;
+GRANT SELECT ON sla_miss TO metrics_readonly;
+GRANT SELECT ON job TO metrics_readonly;
 ```
 
-### StatsD Setup
+### StatsD Configuration
+```yaml
+statsd:
+  endpoint: 0.0.0.0:8125
+  transport: udp
+  aggregation_interval: 60s
+```
 
-Enable StatsD in Airflow:
+**Parameters:**
+- `endpoint` (string, default: 0.0.0.0:8125): UDP listen address
+- `aggregation_interval` (duration, default: 60s): Metric aggregation window
+
+**Airflow Configuration:**
 ```ini
 # airflow.cfg
 [metrics]
 statsd_on = True
-statsd_host = localhost
+statsd_host = <collector-ip>
 statsd_port = 8125
 statsd_prefix = airflow
 ```
 
-## Example Deployment
+## Deployment
 
-### Docker Compose
-```yaml
-version: '3'
-services:
-  otel-collector:
-    image: otelcontribcol:latest
-    command: ["--config=/etc/otel-collector-config.yaml"]
-    volumes:
-      - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml
-    ports:
-      - "8125:8125/udp"  # StatsD
-    environment:
-      - AIRFLOW_PASSWORD=admin
-      - AIRFLOW_DB_PASSWORD=airflow
+### Prerequisites
+
+- Go 1.21+
+- OpenTelemetry Collector Builder (OCB) v0.135.0+
+- Airflow 2.0+ (for testing)
+
+### Build
+```bash
+ocb --config builder-config-airflow.yaml
+```
+
+Output: `./otelcol-airflow/otelcol-airflow` (29MB binary)
+
+### Docker
+```dockerfile
+FROM alpine:latest
+COPY otelcol-airflow /otelcol-airflow
+COPY config.yaml /etc/otel/config.yaml
+ENTRYPOINT ["/otelcol-airflow"]
+CMD ["--config=/etc/otel/config.yaml"]
 ```
 
 ### Kubernetes
@@ -187,7 +370,7 @@ services:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: otel-collector-config
+  name: airflow-otel-config
 data:
   config.yaml: |
     receivers:
@@ -195,102 +378,181 @@ data:
         collection_modes:
           rest_api: true
         rest_api:
-          endpoint: http://airflow-webserver.airflow.svc.cluster.local:8080
-          username: admin
+          endpoint: http://airflow-webserver.airflow:8080
+          username: ${AIRFLOW_USER}
           password: ${AIRFLOW_PASSWORD}
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: airflow-receiver-secrets
-type: Opaque
-stringData:
-  airflow-password: "admin"
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: otel-collector
+  name: airflow-otel-collector
 spec:
   replicas: 2
   template:
     spec:
       containers:
       - name: collector
-        image: otelcontribcol:latest
+        image: your-registry/otelcol-airflow:latest
+        volumeMounts:
+        - name: config
+          mountPath: /etc/otel
         envFrom:
         - secretRef:
-            name: airflow-receiver-secrets
+            name: airflow-credentials
+      volumes:
+      - name: config
+        configMap:
+          name: airflow-otel-config
 ```
+
+## Resource Requirements
+
+**Memory:**
+- REST API mode: ~50MB
+- Database mode: ~50MB
+- StatsD mode: ~30MB + aggregation buffer
+- Combined: ~100MB
+
+**CPU:**
+- Idle: <1%
+- Active scraping: 2-5%
+
+**Network (REST API mode):**
+- Per scrape cycle: ~100KB
+- 30s interval: ~200KB/min
 
 ## Performance Considerations
 
 ### Collection Intervals
 
-- **REST API**: 30-60s for production (avoid API rate limits)
-- **Database**: 15-30s (faster response, but queries metadata DB)
-- **StatsD**: Real-time (no polling)
+- **REST API:** 30-60s recommended (avoid API rate limits)
+- **Database:** 30-60s recommended (balance freshness vs DB load)
+- **StatsD:** Real-time (no polling interval)
 
-### Resource Usage
+### Cardinality
 
-- Memory: ~50MB per receiver instance
-- CPU: <5% during collection
-- Network: ~100KB per collection cycle (REST API)
+High-cardinality dimensions (`dag_run.id`, `task.id`) can produce significant metric volume:
 
-### High-Cardinality Data
+- 100 DAGs × 10 runs/day × 20 tasks = 20,000 unique timeseries
+- With attributes: ~100,000+ timeseries possible
 
-The receiver captures high-cardinality dimensions (dag.id, task.id, run.id). When using backends like ClickHouse:
-```yaml
-exporters:
-  clickhouse:
-    endpoint: tcp://clickhouse:9000
-    database: observability
-    ttl: 30d  # Retention for high-cardinality data
-```
+**Recommendation:** Use OTLP backends designed for high-cardinality data (ClickHouse, Honeycomb, Prometheus with appropriate retention).
+
+### Database Load
+
+Direct database queries add load to the Airflow metadata database. Recommendations:
+
+- Use read replicas when possible
+- Set appropriate `query_timeout` values
+- Monitor query performance
+- Consider disabling database mode in high-load environments
 
 ## Troubleshooting
 
 ### No Metrics Appearing
 
-1. Check Airflow API accessibility:
+1. Check collector logs:
 ```bash
-   curl -u admin:password http://airflow:8080/api/v1/health
+   ./otelcol-airflow --config config.yaml 2>&1 | grep airflow
 ```
 
-2. Verify receiver logs:
+2. Verify Airflow API access:
 ```bash
-   docker logs otel-collector | grep airflow
+   curl -u user:pass http://airflow:8080/api/v1/health
 ```
 
-3. Check collection mode is enabled:
-```yaml
-   collection_modes:
-     rest_api: true  # Must be true!
+3. Test database connectivity:
+```bash
+   psql -h postgres -U airflow -d airflow -c "SELECT COUNT(*) FROM dag;"
 ```
 
-### Database Connection Failures
+### High Memory Usage
 
-- Verify connectivity: `psql -h postgres -U airflow -d airflow`
-- Check TLS settings if using SSL
-- Ensure user has SELECT permissions
+- Reduce `collection_interval` frequency
+- Limit `past_runs_lookback` duration
+- Disable unused collection modes
+- For StatsD: reduce `aggregation_interval`
 
-### StatsD Not Receiving Metrics
+### Missing Dimensions
 
-- Verify Airflow StatSD config points to receiver
-- Check firewall/network policies (UDP port 8125)
-- Look for "Failed to send statsd metric" in Airflow logs
+Some dimensions may be empty or null in Airflow's data model. The receiver skips metrics with critical empty dimensions (like `dag_run_id`) to avoid incomplete data.
 
-## Contributing
+## Development
 
-This receiver is under active development. Contributions welcome!
+### Project Structure
+```
+airflowreceiver/
+├── config.go                    # Configuration structs
+├── factory.go                   # Receiver factory (multi-scraper support)
+├── doc.go                       # Package documentation
+├── metadata.yaml                # Metric definitions
+├── internal/scraper/
+│   ├── rest_scraper.go          # REST API client
+│   ├── rest_scraper_enhanced.go # Comprehensive metric collection
+│   ├── db_scraper.go            # PostgreSQL queries
+│   ├── statsd_scraper.go        # UDP listener + aggregation
+│   ├── api_types.go             # API response structures
+│   └── metrics_builder.go       # Metric construction
+└── builder-config-airflow.yaml  # OCB configuration
+```
 
-**Roadmap:**
-- [ ] Logs collection from task execution logs
-- [ ] Traces collection via OpenLineage integration
-- [ ] Connection health metrics
-- [ ] SLA miss tracking
-- [ ] Custom XCom metric extraction
+### Adding New Metrics
+
+1. Define metric in `metadata.yaml`
+2. Add method to `metrics_builder.go`
+3. Call from appropriate scraper
+4. Update this README with metric documentation
+
+### Testing
+```bash
+# Unit tests (TODO)
+go test ./...
+
+# Integration test
+./otelcol-airflow --config test-config.yaml
+```
+
+## Implementation Notes
+
+### Design Decisions
+
+1. **Multiple scrapers:** Independent implementation allows flexible deployment
+2. **No caching:** Fresh data on every scrape to avoid stale metrics
+3. **Fail-open:** Individual scraper failures don't stop the collector
+4. **High-cardinality first:** Preserve all dimensions, let backend handle aggregation
+
+### Known Limitations
+
+1. **No log collection:** Metrics only (logs planned for future)
+2. **No trace collection:** Would require OpenLineage integration
+3. **PostgreSQL only:** Database scraper assumes PostgreSQL metadata backend
+4. **Basic auth only:** REST API uses HTTP basic authentication
+
+### Future Enhancements
+
+- Log collection from task instances
+- Trace collection via OpenLineage
+- MySQL metadata database support
+- OAuth2/JWT authentication for REST API
+- Custom XCom metric extraction
+- Kubernetes executor metrics
+- Plugin system for extensibility
+
+## References
+
+- [Airflow REST API Documentation](https://airflow.apache.org/docs/apache-airflow/stable/stable-rest-api-ref.html)
+- [Airflow Metrics Documentation](https://airflow.apache.org/docs/apache-airflow/stable/administration-and-deployment/logging-monitoring/metrics.html)
+- [OpenTelemetry Semantic Conventions](https://opentelemetry.io/docs/specs/semconv/)
+- [OTLP Specification](https://opentelemetry.io/docs/specs/otlp/)
 
 ## License
 
-Apache 2.0
+Apache License 2.0 - See LICENSE file
+
+## Contributing
+
+Contributions welcome. Please ensure:
+- Code follows Go conventions
+- New metrics documented in this README
+- Configuration changes include examples
+- Semantic versioning for releases

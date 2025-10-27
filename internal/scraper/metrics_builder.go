@@ -266,9 +266,6 @@ func (mb *MetricsBuilder) RecordPoolRunningSlots(value int64, poolName string, t
 	dp.Attributes().PutStr("pool.name", poolName)
 }
 
-func (mb *MetricsBuilder) Emit() pmetric.Metrics {
-	return mb.metrics
-}
 
 // Additional dimensional metrics
 
@@ -539,4 +536,92 @@ func (mb *MetricsBuilder) RecordSLAMissCount(count int64, dagID string, ts time.
 	dp.SetTimestamp(pcommon.NewTimestampFromTime(ts))
 	dp.SetIntValue(count)
 	dp.Attributes().PutStr("dag.id", dagID)
+}
+
+// Generic metrics for StatsD (dynamic metric names)
+
+func (mb *MetricsBuilder) RecordGenericCounter(value int64, metricName string, tags map[string]string, ts time.Time) {
+	metric := mb.sm.Metrics().AppendEmpty()
+	metric.SetName(metricName)
+	metric.SetUnit("{count}")
+	metric.SetDescription("StatsD counter metric")
+	
+	sum := metric.SetEmptySum()
+	sum.SetIsMonotonic(true)
+	sum.SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
+	
+	dp := sum.DataPoints().AppendEmpty()
+	dp.SetTimestamp(pcommon.NewTimestampFromTime(ts))
+	dp.SetIntValue(value)
+	
+	for k, v := range tags {
+		dp.Attributes().PutStr(k, v)
+	}
+}
+
+func (mb *MetricsBuilder) RecordGenericGauge(value float64, metricName string, tags map[string]string, ts time.Time) {
+	metric := mb.sm.Metrics().AppendEmpty()
+	metric.SetName(metricName)
+	metric.SetUnit("{value}")
+	metric.SetDescription("StatsD gauge metric")
+	
+	gauge := metric.SetEmptyGauge()
+	dp := gauge.DataPoints().AppendEmpty()
+	dp.SetTimestamp(pcommon.NewTimestampFromTime(ts))
+	dp.SetDoubleValue(value)
+	
+	for k, v := range tags {
+		dp.Attributes().PutStr(k, v)
+	}
+}
+
+func (mb *MetricsBuilder) RecordGenericTimer(avg, min, max float64, metricName string, tags map[string]string, ts time.Time) {
+	// Average
+	metric := mb.sm.Metrics().AppendEmpty()
+	metric.SetName(metricName + ".avg")
+	metric.SetUnit("ms")
+	metric.SetDescription("StatsD timer average")
+	
+	gauge := metric.SetEmptyGauge()
+	dp := gauge.DataPoints().AppendEmpty()
+	dp.SetTimestamp(pcommon.NewTimestampFromTime(ts))
+	dp.SetDoubleValue(avg)
+	
+	for k, v := range tags {
+		dp.Attributes().PutStr(k, v)
+	}
+	
+	// Min
+	metricMin := mb.sm.Metrics().AppendEmpty()
+	metricMin.SetName(metricName + ".min")
+	metricMin.SetUnit("ms")
+	
+	gaugeMin := metricMin.SetEmptyGauge()
+	dpMin := gaugeMin.DataPoints().AppendEmpty()
+	dpMin.SetTimestamp(pcommon.NewTimestampFromTime(ts))
+	dpMin.SetDoubleValue(min)
+	
+	for k, v := range tags {
+		dpMin.Attributes().PutStr(k, v)
+	}
+	
+	// Max
+	metricMax := mb.sm.Metrics().AppendEmpty()
+	metricMax.SetName(metricName + ".max")
+	metricMax.SetUnit("ms")
+	
+	gaugeMax := metricMax.SetEmptyGauge()
+	dpMax := gaugeMax.DataPoints().AppendEmpty()
+	dpMax.SetTimestamp(pcommon.NewTimestampFromTime(ts))
+	dpMax.SetDoubleValue(max)
+	
+	for k, v := range tags {
+		dpMax.Attributes().PutStr(k, v)
+	}
+}
+
+
+// Emit returns the accumulated metrics
+func (mb *MetricsBuilder) Emit() pmetric.Metrics {
+	return mb.metrics
 }
