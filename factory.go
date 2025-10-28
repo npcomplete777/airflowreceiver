@@ -26,6 +26,7 @@ func NewFactory() receiver.Factory {
 		typeVal,
 		createDefaultConfig,
 		receiver.WithMetrics(createMetricsReceiver, component.StabilityLevelAlpha),
+		receiver.WithLogs(createLogsReceiver, component.StabilityLevelAlpha),
 	)
 }
 
@@ -46,7 +47,6 @@ func createMetricsReceiver(
 ) (receiver.Metrics, error) {
 	rCfg := cfg.(*Config)
 	
-	// Collect scraper options with explicit type
 	opts := make([]scraperhelper.ControllerOption, 0, 3)
 	
 	// REST API scraper
@@ -71,7 +71,7 @@ func createMetricsReceiver(
 		opts = append(opts, scraperhelper.AddScraper(component.MustNewType("airflow_rest"), sc))
 	}
 	
-	// Database scraper
+	// Database scraper with wrapper
 	if rCfg.CollectionModes.Database {
 		settings.Logger.Info("Enabling Database scraper")
 		
@@ -85,8 +85,9 @@ func createMetricsReceiver(
 			CollectionInterval: rCfg.DatabaseConfig.CollectionInterval,
 		}
 		
-		scraperInstance := scraper_internal.NewDatabaseScraper(dbCfg, settings)
-		sc, err := scraper.NewMetrics(scraperInstance.Scrape)
+		dbScraper := scraper_internal.NewDatabaseScraper(dbCfg, settings)
+		wrapper := scraper_internal.NewDatabaseScraperWrapper(dbScraper)
+		sc, err := scraper.NewMetrics(wrapper.Scrape)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create database scraper: %w", err)
 		}
@@ -124,4 +125,25 @@ func createMetricsReceiver(
 		consumer,
 		opts...,
 	)
+}
+
+func createLogsReceiver(
+	ctx context.Context,
+	settings receiver.Settings,
+	cfg component.Config,
+	consumer consumer.Logs,
+) (receiver.Logs, error) {
+	rCfg := cfg.(*Config)
+	
+	if !rCfg.CollectionModes.Logs {
+		return nil, fmt.Errorf("logs collection mode not enabled")
+	}
+	
+	if rCfg.LogConfig == nil {
+		return nil, fmt.Errorf("logs config is required when logs mode is enabled")
+	}
+	
+	settings.Logger.Info("Creating Airflow logs receiver")
+	
+	return newLogsReceiver(settings, rCfg.LogConfig, consumer)
 }

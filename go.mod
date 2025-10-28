@@ -10,10 +10,10 @@ require (
 	go.opentelemetry.io/collector/config/confighttp v0.138.0
 	go.opentelemetry.io/collector/config/confignet v1.44.0
 	go.opentelemetry.io/collector/config/configopaque v1.44.0
-	go.opentelemetry.io/collector/config/configtls v1.44.0
 	go.opentelemetry.io/collector/consumer v1.44.0
 	go.opentelemetry.io/collector/pdata v1.44.0
 	go.opentelemetry.io/collector/receiver v1.44.0
+	go.opentelemetry.io/collector/scraper v0.138.0
 	go.opentelemetry.io/collector/scraper/scraperhelper v0.138.0
 	go.uber.org/zap v1.27.0
 )
@@ -47,6 +47,7 @@ require (
 	go.opentelemetry.io/collector/config/configcompression v1.44.0 // indirect
 	go.opentelemetry.io/collector/config/configmiddleware v1.44.0 // indirect
 	go.opentelemetry.io/collector/config/configoptional v1.44.0 // indirect
+	go.opentelemetry.io/collector/config/configtls v1.44.0 // indirect
 	go.opentelemetry.io/collector/confmap v1.44.0 // indirect
 	go.opentelemetry.io/collector/confmap/xconfmap v0.138.0 // indirect
 	go.opentelemetry.io/collector/consumer/consumererror v0.138.0 // indirect
@@ -57,7 +58,6 @@ require (
 	go.opentelemetry.io/collector/pdata/pprofile v0.138.0 // indirect
 	go.opentelemetry.io/collector/pipeline v1.44.0 // indirect
 	go.opentelemetry.io/collector/receiver/receiverhelper v0.138.0 // indirect
-	go.opentelemetry.io/collector/scraper v0.138.0 // indirect
 	go.opentelemetry.io/contrib/bridges/otelzap v0.13.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.63.0 // indirect
 	go.opentelemetry.io/otel v1.38.0 // indirect

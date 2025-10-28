@@ -39,3 +39,13 @@ coverage.txt
 dynatrace-config.yaml
 dynatrace-full-config.yaml
 working-config.yaml
+
+# Test configs
+test-*.yaml
+test-*.log
+
+# Compiled binaries
+otelcol-airflow/otelcol-airflow
+
+# Temporary files
+*.patch
