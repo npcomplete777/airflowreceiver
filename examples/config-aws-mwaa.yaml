@@ -1,0 +1,53 @@
+# AWS Managed Workflows for Apache Airflow (MWAA)
+# REST API only - no database access in managed service
+
+receivers:
+  airflow:
+    collection_interval: 60s
+    
+    collection_modes:
+      rest_api: true
+      database: false
+      logs: false
+    
+    rest_api:
+      endpoint: https://YOUR-ENVIRONMENT-ID.c1.us-east-1.airflow.amazonaws.com
+      username: ${MWAA_USERNAME}
+      password: ${MWAA_PASSWORD}
+      collection_interval: 60s
+      include_past_runs: true
+      past_runs_lookback: 24h
+
+processors:
+  batch:
+    timeout: 10s
+    send_batch_size: 100
+  
+  resource:
+    attributes:
+      - key: cloud.provider
+        value: aws
+        action: upsert
+      - key: cloud.platform
+        value: aws_mwaa
+        action: upsert
+      - key: deployment.environment
+        value: production
+        action: upsert
+
+exporters:
+  otlphttp:
+    endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT}
+    headers:
+      api-key: ${OTEL_API_KEY}
+
+service:
+  telemetry:
+    logs:
+      level: info
+  
+  pipelines:
+    metrics:
+      receivers: [airflow]
+      processors: [batch, resource]
+      exporters: [otlphttp]

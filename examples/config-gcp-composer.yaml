@@ -1,0 +1,53 @@
+# Google Cloud Composer
+# REST API only - no database access in managed service
+
+receivers:
+  airflow:
+    collection_interval: 60s
+    
+    collection_modes:
+      rest_api: true
+      database: false
+      logs: false
+    
+    rest_api:
+      endpoint: https://YOUR-COMPOSER-ENVIRONMENT.appspot.com
+      username: ${COMPOSER_USERNAME}
+      password: ${COMPOSER_PASSWORD}
+      collection_interval: 60s
+      include_past_runs: true
+      past_runs_lookback: 24h
+
+processors:
+  batch:
+    timeout: 10s
+    send_batch_size: 100
+  
+  resource:
+    attributes:
+      - key: cloud.provider
+        value: gcp
+        action: upsert
+      - key: cloud.platform
+        value: gcp_composer
+        action: upsert
+      - key: deployment.environment
+        value: production
+        action: upsert
+
+exporters:
+  otlphttp:
+    endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT}
+    headers:
+      api-key: ${OTEL_API_KEY}
+
+service:
+  telemetry:
+    logs:
+      level: info
+  
+  pipelines:
+    metrics:
+      receivers: [airflow]
+      processors: [batch, resource]
+      exporters: [otlphttp]

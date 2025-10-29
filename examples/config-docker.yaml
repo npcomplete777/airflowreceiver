@@ -1,0 +1,57 @@
+# Local Docker Compose deployment
+# All features enabled for testing
+
+receivers:
+  airflow:
+    collection_interval: 30s
+    
+    collection_modes:
+      rest_api: true
+      database: true
+      logs: true
+    
+    rest_api:
+      endpoint: http://localhost:8080
+      username: admin
+      password: admin
+      collection_interval: 30s
+      include_past_runs: true
+      past_runs_lookback: 24h
+    
+    database:
+      host: localhost
+      port: 5432
+      database: airflow
+      username: airflow
+      password: airflow
+      ssl_mode: disable
+      collection_interval: 30s
+    
+    logs:
+      host: localhost
+      port: 5432
+      database: airflow
+      username: airflow
+      password: airflow
+      ssl_mode: disable
+      collection_interval: 30s
+
+exporters:
+  debug:
+    verbosity: detailed
+    sampling_initial: 5
+    sampling_thereafter: 5
+
+service:
+  telemetry:
+    logs:
+      level: debug
+  
+  pipelines:
+    metrics:
+      receivers: [airflow]
+      exporters: [debug]
+    
+    logs:
+      receivers: [airflow]
+      exporters: [debug]

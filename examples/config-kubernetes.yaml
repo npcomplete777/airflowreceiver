@@ -1,0 +1,76 @@
+# Self-hosted Airflow on Kubernetes
+# All features enabled - full observability
+
+receivers:
+  airflow:
+    collection_interval: 30s
+    
+    collection_modes:
+      rest_api: true
+      database: true
+      logs: true
+    
+    rest_api:
+      endpoint: http://airflow-webserver.airflow.svc.cluster.local:8080
+      username: ${AIRFLOW_USERNAME}
+      password: ${AIRFLOW_PASSWORD}
+      collection_interval: 30s
+      include_past_runs: true
+      past_runs_lookback: 24h
+    
+    database:
+      host: airflow-postgresql.airflow.svc.cluster.local
+      port: 5432
+      database: airflow
+      username: ${DB_USERNAME}
+      password: ${DB_PASSWORD}
+      ssl_mode: require
+      collection_interval: 30s
+    
+    logs:
+      host: airflow-postgresql.airflow.svc.cluster.local
+      port: 5432
+      database: airflow
+      username: ${DB_USERNAME}
+      password: ${DB_PASSWORD}
+      ssl_mode: require
+      collection_interval: 30s
+
+processors:
+  batch:
+    timeout: 10s
+    send_batch_size: 100
+  
+  resource:
+    attributes:
+      - key: deployment.environment
+        value: production
+        action: upsert
+      - key: k8s.cluster.name
+        value: ${K8S_CLUSTER_NAME}
+        action: upsert
+      - key: k8s.namespace.name
+        value: airflow
+        action: upsert
+
+exporters:
+  otlphttp:
+    endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT}
+    headers:
+      authorization: Bearer ${OTEL_API_TOKEN}
+
+service:
+  telemetry:
+    logs:
+      level: info
+  
+  pipelines:
+    metrics:
+      receivers: [airflow]
+      processors: [batch, resource]
+      exporters: [otlphttp]
+    
+    logs:
+      receivers: [airflow]
+      processors: [batch, resource]
+      exporters: [otlphttp]
