@@ -18,10 +18,12 @@ import (
 )
 
 type RESTAPIScraper struct {
-	cfg      *RESTAPIConfig
-	settings receiver.Settings
-	client   *http.Client
-	mb       *MetricsBuilder
+	cfg         *RESTAPIConfig
+	settings    receiver.Settings
+	client      *http.Client
+	mb          *MetricsBuilder
+	retryConfig RetryConfig
+	health      *ScraperHealth
 }
 
 type RESTAPIConfig struct {
@@ -35,10 +37,12 @@ type RESTAPIConfig struct {
 
 func NewRESTAPIScraper(cfg *RESTAPIConfig, settings receiver.Settings) *RESTAPIScraper {
 	return &RESTAPIScraper{
-		cfg:      cfg,
-		settings: settings,
-		client:   &http.Client{Timeout: 30 * time.Second},
-		mb:       NewMetricsBuilder(),
+		cfg:         cfg,
+		settings:    settings,
+		client:      &http.Client{Timeout: 30 * time.Second},
+		mb:          NewMetricsBuilder(),
+		retryConfig: DefaultRetryConfig(),
+		health:      NewScraperHealth("rest_api", settings.Logger),
 	}
 }
 
@@ -48,9 +52,17 @@ func (s *RESTAPIScraper) Start(ctx context.Context, host component.Host) error {
 }
 
 func (s *RESTAPIScraper) Scrape(ctx context.Context) (pmetric.Metrics, error) {
-	now := time.Now()
-	s.scrapeComprehensive(ctx, now)
-	return s.mb.Emit(), nil
+	// Use health tracking wrapper
+	metrics, err := s.health.WithScrapeTracking(ctx, func(ctx context.Context) (pmetric.Metrics, error) {
+		now := time.Now()
+		s.scrapeComprehensive(ctx, now)
+		return s.mb.Emit(), nil
+	})
+	
+	// Add health metrics to output
+	s.health.EmitMetrics(s.mb, time.Now())
+	
+	return metrics, err
 }
 
 func (s *RESTAPIScraper) Shutdown(ctx context.Context) error {
@@ -60,25 +72,38 @@ func (s *RESTAPIScraper) Shutdown(ctx context.Context) error {
 
 func (s *RESTAPIScraper) doRequest(ctx context.Context, path string) ([]byte, error) {
 	url := s.cfg.Endpoint + path
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		return nil, err
-	}
 	
-	req.SetBasicAuth(s.cfg.Username, s.cfg.Password)
-	req.Header.Set("Accept", "application/json")
+	var body []byte
+	err := RetryWithBackoff(ctx, s.retryConfig, s.settings.Logger, fmt.Sprintf("GET %s", path), func() error {
+		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+		if err != nil {
+			return err
+		}
+		
+		req.SetBasicAuth(s.cfg.Username, s.cfg.Password)
+		req.Header.Set("Accept", "application/json")
+		
+		resp, err := s.client.Do(req)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+		
+		if resp.StatusCode != http.StatusOK {
+			// Don't retry authentication failures
+			if resp.StatusCode == 401 || resp.StatusCode == 403 {
+				body = nil
+				return fmt.Errorf("authentication failed: status code %d", resp.StatusCode)
+			}
+			// Retry server errors
+			return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+		}
+		
+		body, err = io.ReadAll(resp.Body)
+		return err
+	})
 	
-	resp, err := s.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
-	}
-	
-	return io.ReadAll(resp.Body)
+	return body, err
 }
 
 func (s *RESTAPIScraper) getDags(ctx context.Context) ([]DAG, error) {

@@ -625,3 +625,137 @@ func (mb *MetricsBuilder) RecordGenericTimer(avg, min, max float64, metricName s
 func (mb *MetricsBuilder) Emit() pmetric.Metrics {
 	return mb.metrics
 }
+
+// Scraper health metrics
+func (mb *MetricsBuilder) RecordScraperTotalScrapes(value int64, scraperType string, ts time.Time) {
+	dp := mb.metrics.ResourceMetrics().AppendEmpty().
+		ScopeMetrics().AppendEmpty().
+		Metrics().AppendEmpty().
+		SetEmptyGauge().
+		DataPoints().AppendEmpty()
+	
+	dp.SetIntValue(value)
+	dp.SetTimestamp(pcommon.NewTimestampFromTime(ts))
+	dp.Attributes().PutStr("scraper.type", scraperType)
+	
+	metric := mb.metrics.ResourceMetrics().At(mb.metrics.ResourceMetrics().Len() - 1).
+		ScopeMetrics().At(0).
+		Metrics().At(mb.metrics.ResourceMetrics().At(mb.metrics.ResourceMetrics().Len() - 1).ScopeMetrics().At(0).Metrics().Len() - 1)
+	metric.SetName("airflow.scraper.scrapes.total")
+	metric.SetDescription("Total number of scrapes attempted")
+	metric.SetUnit("{scrapes}")
+}
+
+func (mb *MetricsBuilder) RecordScraperSuccessfulScrapes(value int64, scraperType string, ts time.Time) {
+	dp := mb.metrics.ResourceMetrics().AppendEmpty().
+		ScopeMetrics().AppendEmpty().
+		Metrics().AppendEmpty().
+		SetEmptyGauge().
+		DataPoints().AppendEmpty()
+	
+	dp.SetIntValue(value)
+	dp.SetTimestamp(pcommon.NewTimestampFromTime(ts))
+	dp.Attributes().PutStr("scraper.type", scraperType)
+	
+	metric := mb.metrics.ResourceMetrics().At(mb.metrics.ResourceMetrics().Len() - 1).
+		ScopeMetrics().At(0).
+		Metrics().At(mb.metrics.ResourceMetrics().At(mb.metrics.ResourceMetrics().Len() - 1).ScopeMetrics().At(0).Metrics().Len() - 1)
+	metric.SetName("airflow.scraper.scrapes.successful")
+	metric.SetDescription("Number of successful scrapes")
+	metric.SetUnit("{scrapes}")
+}
+
+func (mb *MetricsBuilder) RecordScraperFailedScrapes(value int64, scraperType string, ts time.Time) {
+	dp := mb.metrics.ResourceMetrics().AppendEmpty().
+		ScopeMetrics().AppendEmpty().
+		Metrics().AppendEmpty().
+		SetEmptyGauge().
+		DataPoints().AppendEmpty()
+	
+	dp.SetIntValue(value)
+	dp.SetTimestamp(pcommon.NewTimestampFromTime(ts))
+	dp.Attributes().PutStr("scraper.type", scraperType)
+	
+	metric := mb.metrics.ResourceMetrics().At(mb.metrics.ResourceMetrics().Len() - 1).
+		ScopeMetrics().At(0).
+		Metrics().At(mb.metrics.ResourceMetrics().At(mb.metrics.ResourceMetrics().Len() - 1).ScopeMetrics().At(0).Metrics().Len() - 1)
+	metric.SetName("airflow.scraper.scrapes.failed")
+	metric.SetDescription("Number of failed scrapes")
+	metric.SetUnit("{scrapes}")
+}
+
+func (mb *MetricsBuilder) RecordScraperHealthStatus(value int64, scraperType string, ts time.Time) {
+	dp := mb.metrics.ResourceMetrics().AppendEmpty().
+		ScopeMetrics().AppendEmpty().
+		Metrics().AppendEmpty().
+		SetEmptyGauge().
+		DataPoints().AppendEmpty()
+	
+	dp.SetIntValue(value)
+	dp.SetTimestamp(pcommon.NewTimestampFromTime(ts))
+	dp.Attributes().PutStr("scraper.type", scraperType)
+	
+	metric := mb.metrics.ResourceMetrics().At(mb.metrics.ResourceMetrics().Len() - 1).
+		ScopeMetrics().At(0).
+		Metrics().At(mb.metrics.ResourceMetrics().At(mb.metrics.ResourceMetrics().Len() - 1).ScopeMetrics().At(0).Metrics().Len() - 1)
+	metric.SetName("airflow.scraper.health")
+	metric.SetDescription("Scraper health status (1=healthy, 0=unhealthy)")
+	metric.SetUnit("{status}")
+}
+
+func (mb *MetricsBuilder) RecordScraperLastDuration(value float64, scraperType string, ts time.Time) {
+	dp := mb.metrics.ResourceMetrics().AppendEmpty().
+		ScopeMetrics().AppendEmpty().
+		Metrics().AppendEmpty().
+		SetEmptyGauge().
+		DataPoints().AppendEmpty()
+	
+	dp.SetDoubleValue(value)
+	dp.SetTimestamp(pcommon.NewTimestampFromTime(ts))
+	dp.Attributes().PutStr("scraper.type", scraperType)
+	
+	metric := mb.metrics.ResourceMetrics().At(mb.metrics.ResourceMetrics().Len() - 1).
+		ScopeMetrics().At(0).
+		Metrics().At(mb.metrics.ResourceMetrics().At(mb.metrics.ResourceMetrics().Len() - 1).ScopeMetrics().At(0).Metrics().Len() - 1)
+	metric.SetName("airflow.scraper.duration.last")
+	metric.SetDescription("Duration of last scrape")
+	metric.SetUnit("s")
+}
+
+func (mb *MetricsBuilder) RecordScraperAvgDuration(value float64, scraperType string, ts time.Time) {
+	dp := mb.metrics.ResourceMetrics().AppendEmpty().
+		ScopeMetrics().AppendEmpty().
+		Metrics().AppendEmpty().
+		SetEmptyGauge().
+		DataPoints().AppendEmpty()
+	
+	dp.SetDoubleValue(value)
+	dp.SetTimestamp(pcommon.NewTimestampFromTime(ts))
+	dp.Attributes().PutStr("scraper.type", scraperType)
+	
+	metric := mb.metrics.ResourceMetrics().At(mb.metrics.ResourceMetrics().Len() - 1).
+		ScopeMetrics().At(0).
+		Metrics().At(mb.metrics.ResourceMetrics().At(mb.metrics.ResourceMetrics().Len() - 1).ScopeMetrics().At(0).Metrics().Len() - 1)
+	metric.SetName("airflow.scraper.duration.avg")
+	metric.SetDescription("Average scrape duration")
+	metric.SetUnit("s")
+}
+
+func (mb *MetricsBuilder) RecordScraperConsecutiveErrors(value int64, scraperType string, ts time.Time) {
+	dp := mb.metrics.ResourceMetrics().AppendEmpty().
+		ScopeMetrics().AppendEmpty().
+		Metrics().AppendEmpty().
+		SetEmptyGauge().
+		DataPoints().AppendEmpty()
+	
+	dp.SetIntValue(value)
+	dp.SetTimestamp(pcommon.NewTimestampFromTime(ts))
+	dp.Attributes().PutStr("scraper.type", scraperType)
+	
+	metric := mb.metrics.ResourceMetrics().At(mb.metrics.ResourceMetrics().Len() - 1).
+		ScopeMetrics().At(0).
+		Metrics().At(mb.metrics.ResourceMetrics().At(mb.metrics.ResourceMetrics().Len() - 1).ScopeMetrics().At(0).Metrics().Len() - 1)
+	metric.SetName("airflow.scraper.errors.consecutive")
+	metric.SetDescription("Number of consecutive scrape errors")
+	metric.SetUnit("{errors}")
+}

@@ -18,10 +18,11 @@ import (
 )
 
 type DatabaseScraper struct {
-	cfg      *DatabaseConfig
-	settings receiver.Settings
-	db       *sql.DB
-	mb       *MetricsBuilder
+	cfg         *DatabaseConfig
+	settings    receiver.Settings
+	db          *sql.DB
+	mb          *MetricsBuilder
+	retryConfig RetryConfig
 }
 
 type DatabaseConfig struct {
@@ -68,9 +69,10 @@ type SchedulerMetrics struct {
 
 func NewDatabaseScraper(cfg *DatabaseConfig, settings receiver.Settings) *DatabaseScraper {
 	return &DatabaseScraper{
-		cfg:      cfg,
-		settings: settings,
-		mb:       NewMetricsBuilder(),
+		cfg:         cfg,
+		settings:    settings,
+		mb:          NewMetricsBuilder(),
+		retryConfig: DefaultRetryConfig(),
 	}
 }
 
@@ -85,14 +87,31 @@ func (s *DatabaseScraper) Start(ctx context.Context, host component.Host) error 
 		s.cfg.SSLMode,
 	)
 	
-	db, err := sql.Open("postgres", connStr)
-	if err != nil {
-		return fmt.Errorf("failed to connect to database: %w", err)
-	}
+	var db *sql.DB
+	err := RetryWithBackoff(ctx, s.retryConfig, s.settings.Logger, "database connection", func() error {
+		var err error
+		db, err = sql.Open("postgres", connStr)
+		if err != nil {
+			return fmt.Errorf("failed to open database: %w", err)
+		}
+		
+		// Configure connection pool
+		db.SetMaxOpenConns(10)
+		db.SetMaxIdleConns(5)
+		db.SetConnMaxLifetime(5 * time.Minute)
+		db.SetConnMaxIdleTime(1 * time.Minute)
+		
+		// Test connection
+		if err := db.PingContext(ctx); err != nil {
+			db.Close()
+			return fmt.Errorf("failed to ping database: %w", err)
+		}
+		
+		return nil
+	})
 	
-	// Test connection
-	if err := db.PingContext(ctx); err != nil {
-		return fmt.Errorf("failed to ping database: %w", err)
+	if err != nil {
+		return err
 	}
 	
 	s.db = db
@@ -150,7 +169,13 @@ func (s *DatabaseScraper) scrapeTaskInstanceStats(ctx context.Context, ts pcommo
 		LIMIT 1000
 	`
 	
-	rows, err := s.db.QueryContext(ctx, query)
+	var rows *sql.Rows
+	err := RetryWithBackoff(ctx, s.retryConfig, s.settings.Logger, "query task instances", func() error {
+		var err error
+		rows, err = s.db.QueryContext(ctx, query)
+		return err
+	})
+	
 	if err != nil {
 		return err
 	}
@@ -203,7 +228,13 @@ func (s *DatabaseScraper) scrapeDAGRunStats(ctx context.Context, ts pcommon.Time
 		ORDER BY count DESC
 	`
 	
-	rows, err := s.db.QueryContext(ctx, query)
+	var rows *sql.Rows
+	err := RetryWithBackoff(ctx, s.retryConfig, s.settings.Logger, "query dag runs", func() error {
+		var err error
+		rows, err = s.db.QueryContext(ctx, query)
+		return err
+	})
+	
 	if err != nil {
 		return err
 	}
@@ -235,7 +266,6 @@ func (s *DatabaseScraper) scrapeDAGRunStats(ctx context.Context, ts pcommon.Time
 }
 
 func (s *DatabaseScraper) scrapeSchedulerMetrics(ctx context.Context, ts pcommon.Timestamp) error {
-	// Count tasks by state
 	query := `
 		SELECT 
 			COUNT(*) FILTER (WHERE state = 'scheduled') as scheduled,
@@ -248,14 +278,17 @@ func (s *DatabaseScraper) scrapeSchedulerMetrics(ctx context.Context, ts pcommon
 	`
 	
 	var metrics SchedulerMetrics
-	err := s.db.QueryRowContext(ctx, query).Scan(
-		&metrics.ScheduledTasks,
-		&metrics.QueuedTasks,
-		&metrics.RunningTasks,
-		&metrics.SuccessTasks24h,
-		&metrics.FailedTasks24h,
-		&metrics.OrphanedTasks,
-	)
+	err := RetryWithBackoff(ctx, s.retryConfig, s.settings.Logger, "query scheduler metrics", func() error {
+		return s.db.QueryRowContext(ctx, query).Scan(
+			&metrics.ScheduledTasks,
+			&metrics.QueuedTasks,
+			&metrics.RunningTasks,
+			&metrics.SuccessTasks24h,
+			&metrics.FailedTasks24h,
+			&metrics.OrphanedTasks,
+		)
+	})
+	
 	if err != nil {
 		return err
 	}
@@ -284,7 +317,13 @@ func (s *DatabaseScraper) scrapeSLAMisses(ctx context.Context, ts pcommon.Timest
 		GROUP BY dag_id
 	`
 	
-	rows, err := s.db.QueryContext(ctx, query)
+	var rows *sql.Rows
+	err := RetryWithBackoff(ctx, s.retryConfig, s.settings.Logger, "query SLA misses", func() error {
+		var err error
+		rows, err = s.db.QueryContext(ctx, query)
+		return err
+	})
+	
 	if err != nil {
 		return err
 	}
@@ -311,6 +350,7 @@ func (s *DatabaseScraper) scrapeSLAMisses(ctx context.Context, ts pcommon.Timest
 
 func (s *DatabaseScraper) Shutdown(ctx context.Context) error {
 	if s.db != nil {
+		s.settings.Logger.Info("Closing database connections")
 		return s.db.Close()
 	}
 	return nil
